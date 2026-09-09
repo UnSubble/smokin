@@ -1,6 +1,7 @@
 package com.unsubble.smokin.model;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -33,7 +34,11 @@ public class Request {
     }
 
     public List<Header> headers() {
-        return headers;
+        return List.copyOf(headers);
+    }
+
+    public byte[] body() {
+        return Arrays.copyOf(body, body.length);
     }
 
     public Request[] split(int idx) {
@@ -53,6 +58,7 @@ public class Request {
             this.path = "/";
             this.version = "1.1";
             this.headers = new ArrayList<>();
+            this.body = new byte[0];
         }
 
         public Builder method(String method) {
@@ -107,5 +113,20 @@ public class Request {
 
     public static Builder newBuilder() {
         return new Builder();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof Request request)) return false;
+        return Objects.equals(method, request.method) &&
+                Objects.equals(path, request.path) &&
+                Objects.equals(version, request.version) &&
+                Objects.equals(headers, request.headers) &&
+                Objects.deepEquals(body, request.body);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(method, path, version, headers, Arrays.hashCode(body));
     }
 }
