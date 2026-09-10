@@ -42,7 +42,30 @@ public class Request {
     }
 
     public Request[] split(int idx) {
-        throw new RuntimeException("not implemented yet.");
+        if (idx < 0 || idx > body.length) {
+            throw new IndexOutOfBoundsException();
+        }
+
+        byte[] first = Arrays.copyOfRange(body, 0, idx);
+        byte[] second = Arrays.copyOfRange(body, idx, body.length);
+
+        Request.Builder firstBuilder = Request.newBuilder()
+                .method(method)
+                .path(path)
+                .version(version)
+                .body(first);
+        headers().forEach(firstBuilder::addHeader);
+        Request firstRequest = firstBuilder.build();
+
+        Request.Builder secondBuilder = Request.newBuilder()
+                .method(method)
+                .path(path)
+                .version(version)
+                .body(second);
+        headers().forEach(secondBuilder::addHeader);
+        Request secondRequest = secondBuilder.build();
+
+        return new Request[] { firstRequest, secondRequest };
     }
 
     public static class Builder {
