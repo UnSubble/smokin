@@ -73,6 +73,39 @@ public class HttpRequestParserTest {
     }
 
     @Test
+    public void testBasicHttpRequestWithTrailingWhitespacesParsing() {
+        Request expected = Request.newBuilder()
+                .method(GET)
+                .path(ROOT_PATH)
+                .version(VERSION_1_1)
+                .build();
+
+        String request = buildRequestString(GET, ROOT_PATH, VERSION_1_1 + "    ", new ArrayList<>(), "");
+
+        HttpRequestParser requestParser = new HttpRequestParser();
+        Request actual = requestParser.parse(request);
+
+        assertEquals(expected, actual);
+    }
+
+    @Test
+    public void testBasicHttpRequestWithWhitespacesAroundParsing() {
+        Request expected = Request.newBuilder()
+                .method(GET)
+                .path(ROOT_PATH)
+                .version(VERSION_1_1)
+                .build();
+
+        String request = buildRequestString("  " + GET, "    " +  ROOT_PATH,
+                VERSION_1_1 + "    ", new ArrayList<>(), "");
+
+        HttpRequestParser requestParser = new HttpRequestParser();
+        Request actual = requestParser.parse(request);
+
+        assertEquals(expected, actual);
+    }
+
+    @Test
     public void testPathParsing() {
         String path = "/api/users/123";
 
@@ -281,6 +314,33 @@ public class HttpRequestParserTest {
                         GET /\r
                         \r
                         """;
+
+        HttpRequestParser requestParser = new HttpRequestParser();
+
+        assertThrows(RuntimeException.class, () -> requestParser.parse(request));
+    }
+
+    @Test
+    public void testMalformedVersionParsing() {
+        String request = buildRequestString(GET, ROOT_PATH, "HTTP/1 .1", new ArrayList<>(), "");
+
+        HttpRequestParser requestParser = new HttpRequestParser();
+
+        assertThrows(RuntimeException.class, () -> requestParser.parse(request));
+    }
+
+    @Test
+    public void testMalformedMethodParsing() {
+        String request = buildRequestString("GE T", ROOT_PATH, VERSION_1_1, new ArrayList<>(), "");
+
+        HttpRequestParser requestParser = new HttpRequestParser();
+
+        assertThrows(RuntimeException.class, () -> requestParser.parse(request));
+    }
+
+    @Test
+    public void testMalformedPathParsing() {
+        String request = buildRequestString(GET, "/first /second", VERSION_1_1, new ArrayList<>(), "");
 
         HttpRequestParser requestParser = new HttpRequestParser();
 

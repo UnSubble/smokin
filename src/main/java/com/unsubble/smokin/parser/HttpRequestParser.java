@@ -14,6 +14,7 @@ public class HttpRequestParser {
     }
 
     public Request parse(String requestStr) {
+        requestStr = requestStr.stripLeading();
         Request.Builder builder = Request.newBuilder();
         int idx = skipLeadingBlankLines(requestStr, 0);
         parse(requestStr, builder, idx);
@@ -202,7 +203,19 @@ public class HttpRequestParser {
             }
 
             if (isOWS(c)) {
-                throw new RuntimeException("Invalid version");
+                while (idx < requestStr.length() && isOWS(requestStr.charAt(idx))) {
+                    idx++;
+                }
+
+                if (idx == requestStr.length() || requestStr.charAt(idx) != '\r') {
+                    throw new RuntimeException("Invalid request");
+                }
+
+                if (idx + 1 >= requestStr.length() || requestStr.charAt(idx + 1) != '\n') {
+                    throw new RuntimeException("Invalid CRLF");
+                }
+
+                return idx + 2;
             }
 
             result.append(c);
