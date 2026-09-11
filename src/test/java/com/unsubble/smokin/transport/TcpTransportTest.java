@@ -414,4 +414,131 @@ public class TcpTransportTest {
 
         assertThrows(IOException.class, transport::connect);
     }
+
+    @Test
+    public void testReadWithBufferOffsetLength() throws Exception {
+        byte[] expected = "hello world".getBytes(StandardCharsets.UTF_8);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+
+            Thread serverThread = new Thread(() -> {
+                try (Socket accepted = server.accept()) {
+                    accepted.getOutputStream().write(expected);
+                    accepted.getOutputStream().flush();
+                    accepted.shutdownOutput();
+                } catch (Throwable t) {
+                    serverError.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            byte[] buffer = new byte[20];
+            int bytesRead;
+            try {
+                transport.connect();
+                bytesRead = transport.read(buffer, 2, expected.length);
+            } finally {
+                transport.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server thread timed out");
+            serverThread.join(1000);
+
+            assertNull(serverError.get(), () -> "Server encountered error: " + serverError.get());
+            assertEquals(expected.length, bytesRead);
+
+            byte[] extracted = new byte[expected.length];
+            System.arraycopy(buffer, 2, extracted, 0, expected.length);
+            assertArrayEquals(expected, extracted);
+        }
+    }
+
+    @Test
+    public void testReadSingle() throws Exception {
+        byte[] expected = new byte[] { 'A', 'B', 'C' };
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+
+            Thread serverThread = new Thread(() -> {
+                try (Socket accepted = server.accept()) {
+                    accepted.getOutputStream().write(expected);
+                    accepted.getOutputStream().flush();
+                    accepted.shutdownOutput();
+                } catch (Throwable t) {
+                    serverError.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            int b1, b2, b3, b4;
+            try {
+                transport.connect();
+                b1 = transport.readSingle();
+                b2 = transport.readSingle();
+                b3 = transport.readSingle();
+                b4 = transport.readSingle(); // EOF
+            } finally {
+                transport.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server thread timed out");
+            serverThread.join(1000);
+
+            assertNull(serverError.get(), () -> "Server encountered error: " + serverError.get());
+            assertEquals('A', b1);
+            assertEquals('B', b2);
+            assertEquals('C', b3);
+            assertEquals(-1, b4);
+        }
+    }
+
+    @Test
+    public void testReadBufferBeforeConnectThrowsNullPointerException() {
+        TcpTransport transport = new TcpTransport("localhost", 8080);
+        byte[] buf = new byte[10];
+
+        assertThrows(NullPointerException.class, () -> transport.read(buf, 0, 10));
+    }
+
+    @Test
+    public void testReadSingleBeforeConnectThrowsNullPointerException() {
+        TcpTransport transport = new TcpTransport("localhost", 8080);
+
+        assertThrows(NullPointerException.class, transport::readSingle);
+    }
+
+    @Test
+    public void testReadNullBufferThrowsNullPointerException() throws Exception {
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+
+            Thread serverThread = new Thread(() -> {
+                try (Socket ignored = server.accept()) {
+                } catch (IOException ignored) {
+                }
+            });
+            serverThread.start();
+
+            try {
+                transport.connect();
+                assertThrows(NullPointerException.class, () -> transport.read(null, 0, 0));
+            } finally {
+                transport.close();
+                serverThread.join(1000);
+            }
+        }
+    }
 }
