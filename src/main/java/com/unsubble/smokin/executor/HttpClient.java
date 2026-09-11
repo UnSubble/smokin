@@ -30,7 +30,7 @@ public class HttpClient {
         transport.connect();
         transport.write(data);
 
-        byte[] responseData = framer.read();
+        byte[] responseData = framer.read(request.method());
 
         return parser.parse(responseData);
     }
