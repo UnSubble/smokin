@@ -157,7 +157,7 @@ public class Http1ResponseParser implements HttpResponseParser {
                     break;
                 }
 
-                if (!isTokenChar(c)) {
+                if (!ParserUtil.isTokenChar(c)) {
                     throw new RuntimeException("Invalid header name");
                 }
 
@@ -198,7 +198,7 @@ public class Http1ResponseParser implements HttpResponseParser {
             }
 
             String headerName = name.toString();
-            String headerValue = trimOWS(value.toString());
+            String headerValue = ParserUtil.trimOWS(value.toString());
 
             builder.addHeader(new Header(headerName, headerValue));
             recordFraming(framing, headerName, headerValue);
@@ -247,8 +247,8 @@ public class Http1ResponseParser implements HttpResponseParser {
         while (idx < responseStr.length()) {
             char c = responseStr.charAt(idx);
 
-            if (isOWS(c)) {
-                while (idx < responseStr.length() && isOWS(responseStr.charAt(idx))) {
+            if (ParserUtil.isOWS(c)) {
+                while (idx < responseStr.length() && ParserUtil.isOWS(responseStr.charAt(idx))) {
                     idx++;
                 }
 
@@ -363,36 +363,6 @@ public class Http1ResponseParser implements HttpResponseParser {
         if (!builder.isEmpty())
             builder.setLength(0);
         return builder;
-    }
-
-    private static boolean isOWS(char c) {
-        return c == ' ' || c == '\t';
-    }
-
-    private static boolean isTokenChar(char c) {
-        if (c <= 32 || c == 127) {
-            return false;
-        }
-
-        return switch (c) {
-            case '(', ')', '<', '>', '@', ',', ';', ':', '\\', '"', '/', '[', ']', '?', '=', '{', '}' -> false;
-            default -> c < 128;
-        };
-    }
-
-    private static String trimOWS(String value) {
-        int start = 0;
-        int end = value.length();
-
-        while (start < end && isOWS(value.charAt(start))) {
-            start++;
-        }
-
-        while (end > start && isOWS(value.charAt(end - 1))) {
-            end--;
-        }
-
-        return value.substring(start, end);
     }
 
     private static final class BodyFraming {
