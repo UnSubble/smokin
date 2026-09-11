@@ -11,5 +11,7 @@ public interface Transport extends AutoCloseable {
 
     int read(byte[] buffer, int offset, int length) throws IOException;
 
+    int readSingle() throws IOException;
+
     void close() throws IOException;
 }
