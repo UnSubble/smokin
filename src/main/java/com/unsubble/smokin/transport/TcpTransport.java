@@ -22,7 +22,10 @@ public class TcpTransport implements Transport {
 
     @Override
     public void connect() throws IOException {
-        close();
+        if (socket != null && !socket.isClosed()) {
+            return;
+        }
+
         closed = false;
         socket = new Socket(host, port);
     }

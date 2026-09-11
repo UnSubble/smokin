@@ -1,5 +1,6 @@
 package com.unsubble.smokin.executor;
 
+import com.unsubble.smokin.model.Header;
 import com.unsubble.smokin.parser.HttpResponseFramer;
 import com.unsubble.smokin.parser.HttpResponseParser;
 import com.unsubble.smokin.encoder.HttpRequestEncoder;
@@ -8,8 +9,10 @@ import com.unsubble.smokin.model.Response;
 import com.unsubble.smokin.transport.Transport;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Objects;
 
-public class HttpClient {
+public class HttpClient implements AutoCloseable {
 
     private final HttpRequestEncoder encoder;
     private final HttpResponseParser parser;
@@ -32,6 +35,27 @@ public class HttpClient {
 
         byte[] responseData = framer.read(request.method());
 
-        return parser.parse(responseData);
+        Response response = parser.parse(responseData);
+
+        if (shouldClose(response))
+            close();
+
+        return response;
+    }
+
+    @Override
+    public void close() throws IOException {
+        transport.close();
+    }
+
+    private static boolean shouldClose(Response response) {
+        return response.headers()
+                .stream()
+                .filter(header -> header.name().equalsIgnoreCase("Connection"))
+                .map(Header::value)
+                .filter(Objects::nonNull)
+                .flatMap(value -> Arrays.stream(value.split(",")))
+                .map(String::trim)
+                .anyMatch(value -> value.equalsIgnoreCase("close"));
     }
 }

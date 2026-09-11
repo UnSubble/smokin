@@ -24,7 +24,10 @@ public class TlsTransport implements Transport {
 
     @Override
     public void connect() throws IOException {
-        close();
+        if (socket != null && !socket.isClosed()) {
+            return;
+        }
+
         closed = false;
 
         SSLSocketFactory factory = (SSLSocketFactory) SSLSocketFactory.getDefault();
