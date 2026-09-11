@@ -1,5 +1,6 @@
 package com.unsubble.smokin.executor;
 
+import com.unsubble.smokin.parser.HttpResponseFramer;
 import com.unsubble.smokin.parser.HttpResponseParser;
 import com.unsubble.smokin.encoder.HttpRequestEncoder;
 import com.unsubble.smokin.model.Request;
@@ -13,11 +14,13 @@ public class HttpClient {
     private final HttpRequestEncoder encoder;
     private final HttpResponseParser parser;
     private final Transport transport;
+    private final HttpResponseFramer framer;
 
     public HttpClient(HttpRequestEncoder encoder, HttpResponseParser parser, Transport transport) {
         this.encoder = encoder;
         this.parser = parser;
         this.transport = transport;
+        this.framer = new HttpResponseFramer(transport);
     }
 
     public Response send(Request request) throws IOException {
@@ -26,7 +29,7 @@ public class HttpClient {
         transport.connect();
         transport.write(data);
 
-        byte[] responseData = transport.read();
+        byte[] responseData = framer.read();
 
         return parser.parse(responseData);
     }

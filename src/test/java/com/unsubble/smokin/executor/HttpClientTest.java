@@ -342,7 +342,7 @@ public class HttpClientTest {
     }
 
     @Test
-    public void testSendWhenServerReturnsMalformedResponseThrowsRuntimeException() throws Exception {
+    public void testSendWhenServerReturnsMalformedResponseThrowsIOException() throws Exception {
         Request request = Request.newBuilder()
                 .method("GET")
                 .path("/")
@@ -378,7 +378,7 @@ public class HttpClientTest {
             serverThread.start();
 
             try {
-                assertThrows(RuntimeException.class, () -> client.send(request));
+                assertThrows(IOException.class, () -> client.send(request));
             } finally {
                 transport.close();
             }
