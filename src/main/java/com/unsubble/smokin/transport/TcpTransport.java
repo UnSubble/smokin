@@ -40,6 +40,13 @@ public class TcpTransport implements Transport {
     }
 
     @Override
+    public int read(byte[] buffer, int offset, int length) throws IOException {
+        Objects.requireNonNull(buffer);
+
+        return socket.getInputStream().read(buffer, offset, length);
+    }
+
+    @Override
     public void close() throws IOException {
         if (socket != null) {
             socket.close();
