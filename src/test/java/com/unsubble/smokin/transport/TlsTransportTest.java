@@ -499,9 +499,66 @@ public class TlsTransportTest {
     }
 
     @Test
-    public void testConnectClosesExistingAndReconnects() throws Exception {
+    public void testConnectWhenAlreadyConnectedDoesNotCreateNewTlsConnection() throws Exception {
         AtomicReference<byte[]> firstRecv = new AtomicReference<>();
         AtomicReference<byte[]> secondRecv = new AtomicReference<>();
+        AtomicInteger acceptCount = new AtomicInteger(0);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (SSLServerSocket server = createServer(serverSslContext)) {
+            TlsTransport transport = new TlsTransport("localhost", server.getLocalPort());
+
+            Thread serverThread = new Thread(() -> {
+                try (SSLSocket socket = (SSLSocket) server.accept()) {
+                    acceptCount.incrementAndGet();
+                    socket.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                    firstRecv.set(socket.getInputStream().readNBytes(5));
+                    socket.getOutputStream().write("resp1".getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream().flush();
+
+                    secondRecv.set(socket.getInputStream().readNBytes(6));
+                    socket.getOutputStream().write("resp2".getBytes(StandardCharsets.UTF_8));
+                    socket.getOutputStream().flush();
+                } catch (Throwable t) {
+                    serverError.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            byte[] clientResp1 = new byte[5];
+            byte[] clientResp2 = new byte[5];
+            try {
+                transport.connect();
+                transport.write("first".getBytes(StandardCharsets.UTF_8));
+                transport.read(clientResp1, 0, 5);
+
+                // Re-calling connect() while already connected should reuse existing SSL connection
+                transport.connect();
+                transport.write("second".getBytes(StandardCharsets.UTF_8));
+                transport.read(clientResp2, 0, 5);
+            } finally {
+                transport.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server thread timed out");
+            serverThread.join(1000);
+
+            assertNull(serverError.get(), () -> "Server encountered error: " + serverError.get());
+            assertEquals(1, acceptCount.get(), "Expected exactly 1 accept() call when connect() is called again");
+            assertArrayEquals("first".getBytes(StandardCharsets.UTF_8), firstRecv.get());
+            assertArrayEquals("second".getBytes(StandardCharsets.UTF_8), secondRecv.get());
+            assertArrayEquals("resp1".getBytes(StandardCharsets.UTF_8), clientResp1);
+            assertArrayEquals("resp2".getBytes(StandardCharsets.UTF_8), clientResp2);
+        }
+    }
+
+    @Test
+    public void testConnectAfterCloseEstablishesNewConnection() throws Exception {
+        AtomicInteger acceptCount = new AtomicInteger(0);
         AtomicReference<Throwable> serverError = new AtomicReference<>();
         CountDownLatch serverDone = new CountDownLatch(1);
 
@@ -511,13 +568,16 @@ public class TlsTransportTest {
             Thread serverThread = new Thread(() -> {
                 try {
                     try (SSLSocket s1 = (SSLSocket) server.accept()) {
+                        acceptCount.incrementAndGet();
                         s1.setSoTimeout(TIMEOUT_SECONDS * 1000);
-                        firstRecv.set(s1.getInputStream().readNBytes(5));
+                        s1.getOutputStream().write("one".getBytes(StandardCharsets.UTF_8));
+                        s1.getOutputStream().flush();
                     }
-
                     try (SSLSocket s2 = (SSLSocket) server.accept()) {
+                        acceptCount.incrementAndGet();
                         s2.setSoTimeout(TIMEOUT_SECONDS * 1000);
-                        secondRecv.set(s2.getInputStream().readNBytes(6));
+                        s2.getOutputStream().write("two".getBytes(StandardCharsets.UTF_8));
+                        s2.getOutputStream().flush();
                     }
                 } catch (Throwable t) {
                     serverError.set(t);
@@ -527,12 +587,15 @@ public class TlsTransportTest {
             });
             serverThread.start();
 
+            byte[] b1 = new byte[3];
+            byte[] b2 = new byte[3];
             try {
                 transport.connect();
-                transport.write("first".getBytes(StandardCharsets.UTF_8));
+                transport.read(b1, 0, 3);
+                transport.close();
 
                 transport.connect();
-                transport.write("second".getBytes(StandardCharsets.UTF_8));
+                transport.read(b2, 0, 3);
             } finally {
                 transport.close();
             }
@@ -541,8 +604,9 @@ public class TlsTransportTest {
             serverThread.join(1000);
 
             assertNull(serverError.get(), () -> "Server encountered error: " + serverError.get());
-            assertArrayEquals("first".getBytes(StandardCharsets.UTF_8), firstRecv.get());
-            assertArrayEquals("second".getBytes(StandardCharsets.UTF_8), secondRecv.get());
+            assertEquals(2, acceptCount.get(), "Expected 2 accept() calls when reconnecting after close");
+            assertArrayEquals("one".getBytes(StandardCharsets.UTF_8), b1);
+            assertArrayEquals("two".getBytes(StandardCharsets.UTF_8), b2);
         }
     }
 

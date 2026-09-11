@@ -18,6 +18,8 @@ import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -249,7 +251,7 @@ public class HttpClientTest {
     }
 
     @Test
-    public void testSendMultipleRequestsSequentially() throws Exception {
+    public void testSendMultipleRequestsSequentiallyReusesConnection() throws Exception {
         Request req1 = Request.newBuilder()
                 .method("GET")
                 .path("/first")
@@ -267,11 +269,21 @@ public class HttpClientTest {
         byte[] expectedReq1 = encoder.encode(req1);
         byte[] expectedReq2 = encoder.encode(req2);
 
-        byte[] resp1 = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfirst".getBytes(StandardCharsets.ISO_8859_1);
-        byte[] resp2 = "HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\nsecond".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                Connection: keep-alive\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
 
         AtomicReference<byte[]> recReq1 = new AtomicReference<>();
         AtomicReference<byte[]> recReq2 = new AtomicReference<>();
+        AtomicInteger acceptCount = new AtomicInteger(0);
         AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
         CountDownLatch serverDone = new CountDownLatch(1);
 
@@ -282,22 +294,24 @@ public class HttpClientTest {
             HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
-                try {
-                    try (Socket socket1 = server.accept()) {
-                        socket1.setSoTimeout(TIMEOUT_SECONDS * 1000);
-                        recReq1.set(socket1.getInputStream().readNBytes(expectedReq1.length));
-                        socket1.getOutputStream().write(resp1);
-                        socket1.getOutputStream().flush();
-                        socket1.shutdownOutput();
-                    }
+                try (Socket socket = server.accept()) {
+                    acceptCount.incrementAndGet();
+                    socket.setSoTimeout(TIMEOUT_SECONDS * 1000);
 
-                    try (Socket socket2 = server.accept()) {
-                        socket2.setSoTimeout(TIMEOUT_SECONDS * 1000);
-                        recReq2.set(socket2.getInputStream().readNBytes(expectedReq2.length));
-                        socket2.getOutputStream().write(resp2);
-                        socket2.getOutputStream().flush();
-                        socket2.shutdownOutput();
-                    }
+                    recReq1.set(
+                            socket.getInputStream().readNBytes(expectedReq1.length)
+                    );
+
+                    socket.getOutputStream().write(resp1);
+                    socket.getOutputStream().flush();
+
+                    recReq2.set(
+                            socket.getInputStream().readNBytes(expectedReq2.length)
+                    );
+
+                    socket.getOutputStream().write(resp2);
+                    socket.getOutputStream().flush();
+
                 } catch (Throwable t) {
                     serverErrorRef.set(t);
                 } finally {
@@ -319,9 +333,548 @@ public class HttpClientTest {
             serverThread.join(1000);
 
             assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(1, acceptCount.get(), "Expected exactly 1 accept() call for persistent connection");
             assertArrayEquals(expectedReq1, recReq1.get());
             assertArrayEquals(expectedReq2, recReq2.get());
 
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testConnectionCloseClosesConnectionAndSecondSendReopensNewConnection() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                Connection: close\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicReference<byte[]> recReq1 = new AtomicReference<>();
+        AtomicReference<byte[]> recReq2 = new AtomicReference<>();
+        AtomicInteger connectionCount = new AtomicInteger(0);
+        AtomicBoolean socket1ClosedByClient = new AtomicBoolean(false);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try {
+                    try (Socket socket1 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket1.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        recReq1.set(socket1.getInputStream().readNBytes(expectedReq1.length));
+                        socket1.getOutputStream().write(resp1);
+                        socket1.getOutputStream().flush();
+
+                        // Client should close connection upon Connection: close
+                        int eof = socket1.getInputStream().read();
+                        socket1ClosedByClient.set(eof == -1);
+                    }
+
+                    try (Socket socket2 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket2.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        recReq2.set(socket2.getInputStream().readNBytes(expectedReq2.length));
+                        socket2.getOutputStream().write(resp2);
+                        socket2.getOutputStream().flush();
+                    }
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(2, connectionCount.get(), "Expected 2 distinct TCP connections");
+            assertTrue(socket1ClosedByClient.get(), "First socket should have been closed by client");
+            assertArrayEquals(expectedReq1, recReq1.get());
+            assertArrayEquals(expectedReq2, recReq2.get());
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testNoConnectionHeaderKeepsConnectionOpenInHttp11() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        // HTTP/1.1 default without Connection header is persistent connection
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicReference<byte[]> recReq1 = new AtomicReference<>();
+        AtomicReference<byte[]> recReq2 = new AtomicReference<>();
+        AtomicInteger acceptCount = new AtomicInteger(0);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept()) {
+                    acceptCount.incrementAndGet();
+                    socket.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                    recReq1.set(socket.getInputStream().readNBytes(expectedReq1.length));
+                    socket.getOutputStream().write(resp1);
+                    socket.getOutputStream().flush();
+
+                    recReq2.set(socket.getInputStream().readNBytes(expectedReq2.length));
+                    socket.getOutputStream().write(resp2);
+                    socket.getOutputStream().flush();
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(1, acceptCount.get(), "Only one accept() should occur for default HTTP/1.1 persistent connection");
+            assertArrayEquals(expectedReq1, recReq1.get());
+            assertArrayEquals(expectedReq2, recReq2.get());
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testMultipleConnectionHeadersWithCloseClosesConnection() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                Connection: keep-alive\r
+                Connection: close\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicInteger connectionCount = new AtomicInteger(0);
+        AtomicBoolean socket1ClosedByClient = new AtomicBoolean(false);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try {
+                    try (Socket socket1 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket1.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket1.getInputStream().readNBytes(expectedReq1.length);
+                        socket1.getOutputStream().write(resp1);
+                        socket1.getOutputStream().flush();
+
+                        int eof = socket1.getInputStream().read();
+                        socket1ClosedByClient.set(eof == -1);
+                    }
+
+                    try (Socket socket2 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket2.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket2.getInputStream().readNBytes(expectedReq2.length);
+                        socket2.getOutputStream().write(resp2);
+                        socket2.getOutputStream().flush();
+                    }
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(2, connectionCount.get(), "Expected 2 distinct TCP connections");
+            assertTrue(socket1ClosedByClient.get(), "First socket should have been closed by client");
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testSingleConnectionHeaderWithMultipleOptionsContainingCloseClosesConnection() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                Connection: keep-alive, close\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicInteger connectionCount = new AtomicInteger(0);
+        AtomicBoolean socket1ClosedByClient = new AtomicBoolean(false);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try {
+                    try (Socket socket1 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket1.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket1.getInputStream().readNBytes(expectedReq1.length);
+                        socket1.getOutputStream().write(resp1);
+                        socket1.getOutputStream().flush();
+
+                        int eof = socket1.getInputStream().read();
+                        socket1ClosedByClient.set(eof == -1);
+                    }
+
+                    try (Socket socket2 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket2.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket2.getInputStream().readNBytes(expectedReq2.length);
+                        socket2.getOutputStream().write(resp2);
+                        socket2.getOutputStream().flush();
+                    }
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(2, connectionCount.get(), "Expected 2 distinct TCP connections");
+            assertTrue(socket1ClosedByClient.get(), "First socket should have been closed by client");
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testConnectionHeaderCaseInsensitiveKeepAliveKeepsConnectionOpen() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                cOnNeCtIoN: KEEP-ALIVE\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicInteger acceptCount = new AtomicInteger(0);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try (Socket socket = server.accept()) {
+                    acceptCount.incrementAndGet();
+                    socket.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                    socket.getInputStream().readNBytes(expectedReq1.length);
+                    socket.getOutputStream().write(resp1);
+                    socket.getOutputStream().flush();
+
+                    socket.getInputStream().readNBytes(expectedReq2.length);
+                    socket.getOutputStream().write(resp2);
+                    socket.getOutputStream().flush();
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(1, acceptCount.get(), "Case-insensitive keep-alive should reuse existing connection");
+            assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
+            assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
+        }
+    }
+
+    @Test
+    public void testConnectionHeaderCaseInsensitiveCloseClosesConnection() throws Exception {
+        Request req1 = Request.newBuilder()
+                .method("GET")
+                .path("/first")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        Request req2 = Request.newBuilder()
+                .method("GET")
+                .path("/second")
+                .version("HTTP/1.1")
+                .addHeader(new Header("Host", "localhost"))
+                .build();
+
+        byte[] expectedReq1 = encoder.encode(req1);
+        byte[] expectedReq2 = encoder.encode(req2);
+
+        byte[] resp1 = """
+                HTTP/1.1 200 OK\r
+                cOnNeCtIoN: ClOsE\r
+                Content-Length: 5\r
+                \r
+                first""".getBytes(StandardCharsets.ISO_8859_1);
+        byte[] resp2 = """
+                HTTP/1.1 200 OK\r
+                Content-Length: 6\r
+                \r
+                second""".getBytes(StandardCharsets.ISO_8859_1);
+
+        AtomicInteger connectionCount = new AtomicInteger(0);
+        AtomicBoolean socket1ClosedByClient = new AtomicBoolean(false);
+        AtomicReference<Throwable> serverErrorRef = new AtomicReference<>();
+        CountDownLatch serverDone = new CountDownLatch(1);
+
+        try (ServerSocket server = new ServerSocket(0)) {
+            server.setSoTimeout(TIMEOUT_SECONDS * 1000);
+            TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
+
+            Thread serverThread = new Thread(() -> {
+                try {
+                    try (Socket socket1 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket1.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket1.getInputStream().readNBytes(expectedReq1.length);
+                        socket1.getOutputStream().write(resp1);
+                        socket1.getOutputStream().flush();
+
+                        int eof = socket1.getInputStream().read();
+                        socket1ClosedByClient.set(eof == -1);
+                    }
+
+                    try (Socket socket2 = server.accept()) {
+                        connectionCount.incrementAndGet();
+                        socket2.setSoTimeout(TIMEOUT_SECONDS * 1000);
+
+                        socket2.getInputStream().readNBytes(expectedReq2.length);
+                        socket2.getOutputStream().write(resp2);
+                        socket2.getOutputStream().flush();
+                    }
+                } catch (Throwable t) {
+                    serverErrorRef.set(t);
+                } finally {
+                    serverDone.countDown();
+                }
+            });
+            serverThread.start();
+
+            Response r1;
+            Response r2;
+            try {
+                r1 = client.send(req1);
+                r2 = client.send(req2);
+            } finally {
+                client.close();
+            }
+
+            assertTrue(serverDone.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "Server timed out");
+            serverThread.join(1000);
+
+            assertNull(serverErrorRef.get(), () -> "Server encountered error: " + serverErrorRef.get());
+            assertEquals(2, connectionCount.get(), "Case-insensitive close should close connection and reopen for second request");
+            assertTrue(socket1ClosedByClient.get(), "First socket should have been closed by client");
             assertArrayEquals("first".getBytes(StandardCharsets.ISO_8859_1), r1.body());
             assertArrayEquals("second".getBytes(StandardCharsets.ISO_8859_1), r2.body());
         }
