@@ -10,7 +10,7 @@ import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-public class HttpResponseFramerTest {
+public class Http1ResponseFramerTest {
 
     private static final String CRLF = "\r\n";
 
@@ -24,7 +24,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 3);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -42,7 +42,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 4);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -62,7 +62,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 5);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -81,7 +81,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 2);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -100,7 +100,7 @@ public class HttpResponseFramerTest {
         System.arraycopy(bodyBytes, 0, rawBytes, headerBytes.length, bodyBytes.length);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 4);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -123,7 +123,7 @@ public class HttpResponseFramerTest {
         System.arraycopy(binaryBody, 0, rawBytes, headerBytes.length, binaryBody.length);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 3);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -139,7 +139,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, new int[] { 2, 1, 5, 3, 4, 1 });
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -158,7 +158,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = (headers + body).getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 2);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -183,7 +183,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 1);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -200,7 +200,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 4);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         IOException thrown = assertThrows(IOException.class, framer::read);
         assertTrue(thrown.getMessage().contains("Connection closed before expected body bytes were received"),
@@ -215,7 +215,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 2);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         IOException thrown = assertThrows(IOException.class, framer::read);
         assertTrue(thrown.getMessage().contains("Connection closed before CRLF"));
@@ -228,7 +228,7 @@ public class HttpResponseFramerTest {
                 Content-Length: abc\r
                 \r
                 """;
-        HttpResponseFramer framer1 = new HttpResponseFramer(
+        Http1ResponseFramer framer1 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(nonNumeric.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer1::read);
 
@@ -237,7 +237,7 @@ public class HttpResponseFramerTest {
                 Content-Length: -5\r
                 \r
                 """;
-        HttpResponseFramer framer2 = new HttpResponseFramer(
+        Http1ResponseFramer framer2 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(negative.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer2::read);
 
@@ -247,7 +247,7 @@ public class HttpResponseFramerTest {
                 Content-Length: 10\r
                 \r
                 hello""";
-        HttpResponseFramer framer3 = new HttpResponseFramer(
+        Http1ResponseFramer framer3 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(conflicting.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer3::read);
     }
@@ -261,7 +261,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 7);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -274,7 +274,7 @@ public class HttpResponseFramerTest {
                 HTTP/1.1\r
                 \r
                 """;
-        HttpResponseFramer framer1 = new HttpResponseFramer(
+        Http1ResponseFramer framer1 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(incomplete.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer1::read);
 
@@ -282,7 +282,7 @@ public class HttpResponseFramerTest {
                 HTTP/1.1 20A OK\r
                 \r
                 """;
-        HttpResponseFramer framer2 = new HttpResponseFramer(
+        Http1ResponseFramer framer2 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(nonDigit.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer2::read);
 
@@ -290,7 +290,7 @@ public class HttpResponseFramerTest {
                 HTTP/1.1 20 OK\r
                 \r
                 """;
-        HttpResponseFramer framer3 = new HttpResponseFramer(
+        Http1ResponseFramer framer3 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(tooShort.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer3::read);
 
@@ -298,7 +298,7 @@ public class HttpResponseFramerTest {
                 HTTP/1.1 2000 OK\r
                 \r
                 """;
-        HttpResponseFramer framer4 = new HttpResponseFramer(
+        Http1ResponseFramer framer4 = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(tooLong.getBytes(StandardCharsets.ISO_8859_1)));
         assertThrows(IOException.class, framer4::read);
     }
@@ -310,7 +310,7 @@ public class HttpResponseFramerTest {
                 HeaderWithoutColon\r
                 \r
                 """;
-        HttpResponseFramer framer = new HttpResponseFramer(
+        Http1ResponseFramer framer = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(raw.getBytes(StandardCharsets.ISO_8859_1)));
 
         assertThrows(IOException.class, framer::read);
@@ -328,7 +328,7 @@ public class HttpResponseFramerTest {
                 0\r
                 \r
                 """;
-        HttpResponseFramer framer = new HttpResponseFramer(
+        Http1ResponseFramer framer = new Http1ResponseFramer(
                 new FakeReadOnlyTransport(raw.getBytes(StandardCharsets.ISO_8859_1)));
 
         IOException thrown = assertThrows(IOException.class, framer::read);
@@ -351,7 +351,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 2);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read();
 
@@ -368,7 +368,7 @@ public class HttpResponseFramerTest {
         byte[] rawBytes = raw.getBytes(StandardCharsets.ISO_8859_1);
 
         FakeReadOnlyTransport transport = new FakeReadOnlyTransport(rawBytes, 10);
-        HttpResponseFramer framer = new HttpResponseFramer(transport);
+        Http1ResponseFramer framer = new Http1ResponseFramer(transport);
 
         byte[] framed = framer.read("HEAD");
 
@@ -382,7 +382,7 @@ public class HttpResponseFramerTest {
                 \r
                 """;
         byte[] raw204Bytes = raw204.getBytes(StandardCharsets.ISO_8859_1);
-        HttpResponseFramer framer204 = new HttpResponseFramer(new FakeReadOnlyTransport(raw204Bytes));
+        Http1ResponseFramer framer204 = new Http1ResponseFramer(new FakeReadOnlyTransport(raw204Bytes));
         assertArrayEquals(raw204Bytes, framer204.read());
 
         String raw304 = """
@@ -391,7 +391,7 @@ public class HttpResponseFramerTest {
                 \r
                 """;
         byte[] raw304Bytes = raw304.getBytes(StandardCharsets.ISO_8859_1);
-        HttpResponseFramer framer304 = new HttpResponseFramer(new FakeReadOnlyTransport(raw304Bytes));
+        Http1ResponseFramer framer304 = new Http1ResponseFramer(new FakeReadOnlyTransport(raw304Bytes));
         assertArrayEquals(raw304Bytes, framer304.read());
     }
 

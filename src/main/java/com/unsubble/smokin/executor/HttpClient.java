@@ -16,11 +16,12 @@ public class HttpClient {
     private final Transport transport;
     private final HttpResponseFramer framer;
 
-    public HttpClient(HttpRequestEncoder encoder, HttpResponseParser parser, Transport transport) {
+    public HttpClient(HttpRequestEncoder encoder, HttpResponseParser parser,
+                      HttpResponseFramer framer, Transport transport) {
         this.encoder = encoder;
         this.parser = parser;
+        this.framer = framer;
         this.transport = transport;
-        this.framer = new HttpResponseFramer(transport);
     }
 
     public Response send(Request request) throws IOException {

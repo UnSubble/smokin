@@ -5,7 +5,9 @@ import com.unsubble.smokin.encoder.HttpRequestEncoder;
 import com.unsubble.smokin.model.Header;
 import com.unsubble.smokin.model.Request;
 import com.unsubble.smokin.model.Response;
+import com.unsubble.smokin.parser.Http1ResponseFramer;
 import com.unsubble.smokin.parser.Http1ResponseParser;
+import com.unsubble.smokin.parser.HttpResponseFramer;
 import com.unsubble.smokin.parser.HttpResponseParser;
 import com.unsubble.smokin.transport.TcpTransport;
 import org.junit.jupiter.api.Test;
@@ -55,7 +57,8 @@ public class HttpClientTest {
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(TIMEOUT_SECONDS * 1000);
             TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
-            HttpClient client = new HttpClient(encoder, parser, transport);
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
                 try (Socket socket = server.accept()) {
@@ -131,7 +134,8 @@ public class HttpClientTest {
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(TIMEOUT_SECONDS * 1000);
             TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
-            HttpClient client = new HttpClient(encoder, parser, transport);
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
                 try (Socket socket = server.accept()) {
@@ -205,7 +209,8 @@ public class HttpClientTest {
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(TIMEOUT_SECONDS * 1000);
             TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
-            HttpClient client = new HttpClient(encoder, parser, transport);
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
                 try (Socket socket = server.accept()) {
@@ -273,7 +278,8 @@ public class HttpClientTest {
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(TIMEOUT_SECONDS * 1000);
             TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
-            HttpClient client = new HttpClient(encoder, parser, transport);
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
                 try {
@@ -329,7 +335,8 @@ public class HttpClientTest {
         }
 
         TcpTransport transport = new TcpTransport("localhost", unusedPort);
-        HttpClient client = new HttpClient(encoder, parser, transport);
+        HttpResponseFramer framer = new Http1ResponseFramer(transport);
+        HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
         Request request = Request.newBuilder()
                 .method("GET")
@@ -359,7 +366,8 @@ public class HttpClientTest {
         try (ServerSocket server = new ServerSocket(0)) {
             server.setSoTimeout(TIMEOUT_SECONDS * 1000);
             TcpTransport transport = new TcpTransport("localhost", server.getLocalPort());
-            HttpClient client = new HttpClient(encoder, parser, transport);
+            HttpResponseFramer framer = new Http1ResponseFramer(transport);
+            HttpClient client = new HttpClient(encoder, parser, framer, transport);
 
             Thread serverThread = new Thread(() -> {
                 try (Socket socket = server.accept()) {
