@@ -27,20 +27,35 @@ public class HttpClient implements AutoCloseable {
         this.transport = transport;
     }
 
-    public Response send(Request request) throws IOException {
-        byte[] data = encoder.encode(request);
+    public void connect() throws IOException {
+        transport.connect();
+    }
 
+    public void write(Request request) throws IOException {
+        Objects.requireNonNull(request, "request must not be null");
+        write(encoder.encode(request));
+    }
+
+    public void write(byte[] data) throws IOException {
+        Objects.requireNonNull(data, "data must not be null");
         transport.connect();
         transport.write(data);
+    }
 
-        byte[] responseData = framer.read(request.method());
-
+    public Response read(String method) throws IOException {
+        Objects.requireNonNull(method, "method must not be null");
+        byte[] responseData = framer.read(method);
         Response response = parser.parse(responseData);
 
         if (shouldClose(response))
             close();
 
         return response;
+    }
+
+    public Response send(Request request) throws IOException {
+        write(request);
+        return read(request.method());
     }
 
     @Override
