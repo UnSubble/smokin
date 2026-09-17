@@ -1,14 +1,11 @@
 package com.unsubble.smokin.api;
 
+import com.unsubble.smokin.executor.ClientCtl;
 import com.unsubble.smokin.executor.ClientService;
 import com.unsubble.smokin.model.Protocol;
-import com.unsubble.smokin.model.RequestGroup;
 import com.unsubble.smokin.model.Version;
 import com.unsubble.smokin.parser.HttpRequestParser;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
 
 public class ClientManager {
 
@@ -32,6 +29,14 @@ public class ClientManager {
 
     public ClientService getService(Version version, Protocol protocol, String host, int port) {
         return clientServiceFactory.create(version, protocol, host, port);
+    }
+
+    public ClientCtl getController(ClientService clientService) {
+        return clientService.createController();
+    }
+
+    public ClientCtl getController(Version version, Protocol protocol, String host, int port) {
+        return getService(version, protocol, host, port).createController();
     }
 
     public static ClientManager getInstance() {
