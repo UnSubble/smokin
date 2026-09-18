@@ -2,6 +2,7 @@ package com.unsubble.smokin.api;
 
 import com.unsubble.smokin.encoder.Http1RequestEncoder;
 import com.unsubble.smokin.encoder.HttpRequestEncoder;
+import com.unsubble.smokin.executor.Client;
 import com.unsubble.smokin.executor.ClientService;
 import com.unsubble.smokin.executor.HttpClient;
 import com.unsubble.smokin.model.Protocol;
@@ -33,7 +34,7 @@ public class ClientServiceFactory {
         return new ClientService(() -> createClient(version, protocol, host, port));
     }
 
-    private HttpClient createClient(Version version, Protocol protocol, String host, int port) {
+    private Client createClient(Version version, Protocol protocol, String host, int port) {
         HttpRequestEncoder requestEncoder = createRequestEncoder(version);
         HttpResponseParser responseParser = createResponseParser(version);
         Transport transport = createTransport(protocol, host, port);

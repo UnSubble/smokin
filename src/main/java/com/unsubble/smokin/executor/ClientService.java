@@ -16,26 +16,26 @@ public class ClientService implements AutoCloseable {
     public static final int DEFAULT_THREAD_COUNT = 10;
 
     private final int defaultThreadCount;
-    private final Supplier<HttpClient> defaultClientSupplier;
+    private final Supplier<? extends Client> defaultClientSupplier;
     private ExecutorService executorService;
 
     public ClientService() {
-        this((Supplier<HttpClient>) null, DEFAULT_THREAD_COUNT);
+        this((Supplier<? extends Client>) null, DEFAULT_THREAD_COUNT);
     }
 
-    public ClientService(HttpClient client) {
+    public ClientService(Client client) {
         this(client != null ? () -> client : null, DEFAULT_THREAD_COUNT);
     }
 
-    public ClientService(HttpClient client, int defaultThreadCount) {
+    public ClientService(Client client, int defaultThreadCount) {
         this(client != null ? () -> client : null, defaultThreadCount);
     }
 
-    public ClientService(Supplier<HttpClient> clientSupplier) {
+    public ClientService(Supplier<? extends Client> clientSupplier) {
         this(clientSupplier, DEFAULT_THREAD_COUNT);
     }
 
-    public ClientService(Supplier<HttpClient> clientSupplier, int defaultThreadCount) {
+    public ClientService(Supplier<? extends Client> clientSupplier, int defaultThreadCount) {
         this.defaultClientSupplier = clientSupplier;
         this.defaultThreadCount = defaultThreadCount > 0 ? defaultThreadCount : DEFAULT_THREAD_COUNT;
     }
@@ -73,12 +73,12 @@ public class ClientService implements AutoCloseable {
             return new ExecutionResult(List.of());
         }
 
-        Supplier<HttpClient> supplier = plan.getClientSupplier() != null
+        Supplier<? extends Client> supplier = plan.getClientSupplier() != null
                 ? plan.getClientSupplier()
                 : this.defaultClientSupplier;
 
         if (supplier == null) {
-            throw new IllegalStateException("No HttpClient or clientSupplier configured for execution");
+            throw new IllegalStateException("No Client or clientSupplier configured for execution");
         }
 
         if (plan.isSynchronizeLastBytes() && !plan.isAsync() && requests.size() > 1) {
@@ -93,66 +93,27 @@ public class ClientService implements AutoCloseable {
         }
 
         List<CompletableFuture<Response>> futures = new ArrayList<>(requests.size());
+        LastByteCoordinator coordinator = plan.isSynchronizeLastBytes()
+                ? new LastByteCoordinator(requests.size())
+                : null;
 
-        if (plan.isSynchronizeLastBytes()) {
-            LastByteCoordinator coordinator = new LastByteCoordinator(requests.size());
-
-            for (Request req : requests) {
-                int splitIndex = Math.max(0, req.body().length - 1);
-                Request[] parts = req.split(splitIndex);
-                Request firstPart = parts[0];
-                Request secondPart = parts[1];
-
-                HttpClient client = supplier.get();
-                if (plan.isAsync()) {
-                    CompletableFuture<Response> future = CompletableFuture.supplyAsync(() -> {
-                        try {
-                            try {
-                                client.write(firstPart);
-                            } catch (IOException e) {
-                                coordinator.abort(e);
-                                throw e;
-                            }
-
-                            coordinator.await();
-
-                            if (secondPart.body().length > 0) {
-                                client.write(secondPart.body());
-                            }
-
-                            return client.read(firstPart.method());
-                        } catch (IOException e) {
-                            throw new CompletionException(e);
-                        }
-                    }, executor);
-                    futures.add(future);
-                } else {
+        for (Request req : requests) {
+            Client client = supplier.get();
+            if (plan.isAsync()) {
+                CompletableFuture<Response> future = CompletableFuture.supplyAsync(() -> {
                     try {
-                        client.write(firstPart);
-                        coordinator.await();
-                        if (secondPart.body().length > 0) {
-                            client.write(secondPart.body());
-                        }
-                        Response resp = client.read(firstPart.method());
-                        futures.add(CompletableFuture.completedFuture(resp));
-                    } catch (Exception e) {
-                        futures.add(CompletableFuture.failedFuture(e));
+                        return client.send(req, coordinator);
+                    } catch (IOException e) {
+                        throw new CompletionException(e);
                     }
-                }
-            }
-        } else {
-            for (Request req : requests) {
-                HttpClient client = supplier.get();
-                if (plan.isAsync()) {
-                    DefaultAsyncHttpClient asyncClient = new DefaultAsyncHttpClient(client, executor);
-                    futures.add(asyncClient.sendAsync(req));
-                } else {
-                    try {
-                        Response resp = client.send(req);
-                        futures.add(CompletableFuture.completedFuture(resp));
-                    } catch (Exception e) {
-                        futures.add(CompletableFuture.failedFuture(e));
-                    }
+                }, executor);
+                futures.add(future);
+            } else {
+                try {
+                    Response resp = client.send(req, coordinator);
+                    futures.add(CompletableFuture.completedFuture(resp));
+                } catch (Exception e) {
+                    futures.add(CompletableFuture.failedFuture(e));
                 }
             }
         }

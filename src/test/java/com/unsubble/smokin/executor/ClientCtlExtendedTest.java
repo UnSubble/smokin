@@ -4,7 +4,6 @@ import com.unsubble.smokin.model.Request;
 import com.unsubble.smokin.model.RequestGroup;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -273,7 +272,6 @@ public class ClientCtlExtendedTest {
 
         ExecutionPlan plan1 = ctl.buildPlan();
 
-        // Adding a group after buildPlan() should not affect already-built plan
         ctl.addGroup(List.of(Request.newBuilder().build()));
         ExecutionPlan plan2 = ctl.buildPlan();
 

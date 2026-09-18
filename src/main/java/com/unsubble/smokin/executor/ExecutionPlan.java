@@ -12,12 +12,12 @@ public class ExecutionPlan {
     private final boolean async;
     private final boolean synchronizeLastBytes;
     private final int threadCount;
-    private final Supplier<HttpClient> clientSupplier;
+    private final Supplier<? extends Client> clientSupplier;
     private final int size;
 
     public ExecutionPlan(List<RequestGroup> groups, boolean async,
                          boolean synchronizeLastBytes, int threadCount,
-                         Supplier<HttpClient> clientSupplier) {
+                         Supplier<? extends Client> clientSupplier) {
         this.groups = groups != null ? List.copyOf(groups) : List.of();
         this.async = async;
         this.synchronizeLastBytes = synchronizeLastBytes;
@@ -54,7 +54,7 @@ public class ExecutionPlan {
         return threadCount;
     }
 
-    public Supplier<HttpClient> getClientSupplier() {
+    public Supplier<? extends Client> getClientSupplier() {
         return clientSupplier;
     }
 }

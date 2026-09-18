@@ -10,10 +10,10 @@ import java.util.concurrent.Executor;
 
 public class DefaultAsyncHttpClient implements AsyncHttpClient {
 
-    private final HttpClient client;
+    private final Client client;
     private final Executor executor;
 
-    public DefaultAsyncHttpClient(HttpClient client, Executor executor) {
+    public DefaultAsyncHttpClient(Client client, Executor executor) {
         this.client = client;
         this.executor = executor;
     }

@@ -15,7 +15,7 @@ public class ClientCtl {
     private boolean async = false;
     private boolean synchronizeLastBytes = false;
     private int threadCount = -1;
-    private Supplier<HttpClient> clientSupplier;
+    private Supplier<? extends Client> clientSupplier;
 
     public ClientCtl(ClientService clientService) {
         this.clientService = Objects.requireNonNull(clientService, "clientService must not be null");
@@ -52,7 +52,7 @@ public class ClientCtl {
         return this;
     }
 
-    public ClientCtl clientSupplier(Supplier<HttpClient> clientSupplier) {
+    public ClientCtl clientSupplier(Supplier<? extends Client> clientSupplier) {
         this.clientSupplier = clientSupplier;
         return this;
     }
